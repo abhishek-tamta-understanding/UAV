@@ -1,0 +1,49 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.cluster import KMeans
+
+# Fake GPS coordinates (x, y)
+# similar to Mercator projection
+np.random.seed(43)
+tea_fields = np.array([
+ [100, 200], [150, 220], [120, 180],  # Group A (paas paas)
+    [500, 600], [520, 580], [490, 620],  # Group B (dur)
+    [800, 100], [820, 130], [780, 90],   # Group C (aur dur)
+    [400, 400]                            # Beech mein akela
+])
+
+# K-Means: 3 groups banao (jaise paper mein 5 banaye the)
+kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+labels = kmeans.fit_predict(tea_fields)
+centers = kmeans.cluster_centers_  # Yahi "supply points" hain!
+
+# Plot karo
+colors = ['red', 'blue', 'green']
+plt.figure(figsize=(8, 6))
+
+for i, (field, label) in enumerate(zip(tea_fields, labels)):
+    plt.scatter(field[0], field[1],
+                color=colors[label], s=100, zorder=5)
+    plt.annotate(f'Field {i+1}', field, textcoords="offset points",
+                 xytext=(5,5))
+
+# Supply points (cluster centers) — paper mein yahi UAV recharge karta hai
+for i, center in enumerate(centers):
+    plt.scatter(center[0], center[1],
+                color=colors[i], marker='*', s=300,
+                label=f'Supply Point {i+1}', zorder=6)
+plt.title('Tea Fields Clustering (Paper ka Step 1)')
+plt.xlabel('X coordinate (meters)')
+plt.ylabel('Y coordinate (meters)')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+
+print("Har field kis group mein hai:")
+for i, label in enumerate(labels):
+    print(f"  Field {i+1} -> Group {label+1}")
+
+print(f"\nSupply Points (UAV recharge karne ki jagah):")
+for i, center in enumerate(centers):
+    print(f"  Supply Point {i+1}: ({center[0]:.1f}, {center[1]:.1f})")
