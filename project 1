@@ -1,49 +1,420 @@
+# ============================================
+# PROJECT 1: Assam Tea Estates Clustering
+# Real Scale: 1076 estates, 341,049 hectares
+# Goal: Drone operation zones banana
+# ============================================
+
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+import math
+import warnings
+warnings.filterwarnings('ignore')
 
-# Fake GPS coordinates (x, y)
-# similar to Mercator projection
-np.random.seed(43)
-tea_fields = np.array([
- [100, 200], [150, 220], [120, 180],  # Group A (paas paas)
-    [500, 600], [520, 580], [490, 620],  # Group B (dur)
-    [800, 100], [820, 130], [780, 90],   # Group C (aur dur)
-    [400, 400]                            # Beech mein akela
-])
+# ============================================
+# STEP 1: Real Assam Tea District Data
+# Source: Tea Board of India + TRA coverage
+# ============================================
 
-# K-Means: 3 groups banao (jaise paper mein 5 banaye the)
-kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-labels = kmeans.fit_predict(tea_fields)
-centers = kmeans.cluster_centers_  # Yahi "supply points" hain!
+# Assam ke major tea districts
+# Real approximate GPS boundaries
 
-# Plot karo
-colors = ['red', 'blue', 'green']
-plt.figure(figsize=(8, 6))
+assam_districts = {
+    'Dibrugarh': {
+        'center': (95.12, 27.48),
+        'estates': 165,      # approximate
+        'hectares': 52000,
+        'major_pests': ['Helopeltis', 'Thrips', 'Mites']
+    },
+    'Tinsukia': {
+        'center': (95.36, 27.49),
+        'estates': 142,
+        'hectares': 48000,
+        'major_pests': ['Helopeltis', 'Looper', 'Thrips']
+    },
+    'Jorhat': {
+        'center': (94.21, 26.75),  # Tocklai yahan hai!
+        'estates': 138,
+        'hectares': 45000,
+        'major_pests': ['Mites', 'Helopeltis', 'Thrips']
+    },
+    'Sivsagar': {
+        'center': (94.64, 26.98),
+        'estates': 125,
+        'hectares': 41000,
+        'major_pests': ['Thrips', 'Mites', 'Looper']
+    },
+    'Golaghat': {
+        'center': (93.97, 26.52),
+        'estates': 108,
+        'hectares': 35000,
+        'major_pests': ['Helopeltis', 'Mites']
+    },
+    'Sonitpur': {
+        'center': (92.79, 26.62),
+        'estates': 98,
+        'hectares': 32000,
+        'major_pests': ['Thrips', 'Looper']
+    },
+    'Darrang': {
+        'center': (92.01, 26.44),
+        'estates': 85,
+        'hectares': 28000,
+        'major_pests': ['Mites', 'Helopeltis']
+    },
+    'Nagaon': {
+        'center': (92.68, 26.35),
+        'estates': 78,
+        'hectares': 25000,
+        'major_pests': ['Thrips', 'Mites']
+    },
+    'Cachar': {
+        'center': (92.86, 24.80),
+        'estates': 137,
+        'hectares': 35049,
+        'major_pests': ['Looper', 'Helopeltis']
+    },
+}
 
-for i, (field, label) in enumerate(zip(tea_fields, labels)):
-    plt.scatter(field[0], field[1],
-                color=colors[label], s=100, zorder=5)
-    plt.annotate(f'Field {i+1}', field, textcoords="offset points",
-                 xytext=(5,5))
+# ============================================
+# STEP 2: Synthetic estates generate karo
+# 
+# CONCEPT: Hum 1076 individual estates
+# manually enter nahi kar sakte.
+# Toh numpy se realistic random distribution
+# banate hain — real data jaisa!
+#
+# np.random.normal(center, spread, count)
+# = center ke aaspaas normally 
+#   distributed points
+# ============================================
 
-# Supply points (cluster centers) — paper mein yahi UAV recharge karta hai
+np.random.seed(42)  # Reproducibility ke liye
+
+all_estates = []      # Coordinates
+estate_districts = [] # Har estate ka district
+estate_sizes = []     # Har estate ka size (ha)
+
+print("Estates generate ho rahe hain...")
+print("=" * 45)
+
+for district, info in assam_districts.items():
+    lon_center, lat_center = info['center']
+    n_estates = info['estates']
+    total_ha = info['hectares']
+    
+    # Estates ko district center ke
+    # aaspaas scatter karo
+    # 0.3 degree ≈ 30km spread
+    lons = np.random.normal(
+        lon_center, 0.3, n_estates)
+    lats = np.random.normal(
+        lat_center, 0.2, n_estates)
+    
+    # Har estate ka size
+    # (total hectares / estates = average)
+    avg_size = total_ha / n_estates
+    sizes = np.random.normal(
+        avg_size, avg_size*0.3, n_estates)
+    sizes = np.abs(sizes)  # Negative nahi ho
+    
+    for lon, lat, size in zip(lons, lats, sizes):
+        all_estates.append([lon, lat])
+        estate_districts.append(district)
+        estate_sizes.append(size)
+    
+    print(f"{district:12}: "
+          f"{n_estates} estates, "
+          f"{total_ha:,} hectares")
+
+all_estates = np.array(all_estates)
+estate_sizes = np.array(estate_sizes)
+
+print(f"\nTotal estates generated: "
+      f"{len(all_estates)}")
+print(f"Total area: "
+      f"{estate_sizes.sum():,.0f} hectares")
+
+# ============================================
+# STEP 3: GPS → Meters Convert
+#
+# CONCEPT: Clustering distance mein
+# kaam karta hai.
+# GPS degrees mein hai — convert karo!
+# ============================================
+
+def gps_to_meters(coords, 
+                  lon0=92.0, lat0=24.0):
+    """
+    Sabhi GPS coordinates ko
+    meters mein convert karo.
+    Reference point: SW corner of Assam
+    """
+    R = 6371000
+    coords_m = []
+    
+    for lon, lat in coords:
+        x = R * math.radians(
+            lon - lon0) * math.cos(
+            math.radians(lat0))
+        y = R * math.radians(lat - lat0)
+        coords_m.append([x, y])
+    
+    return np.array(coords_m)
+
+coords_meters = gps_to_meters(all_estates)
+
+print(f"\nCoordinate range:")
+print(f"East-West:   "
+      f"{coords_meters[:,0].min()/1000:.0f} to "
+      f"{coords_meters[:,0].max()/1000:.0f} km")
+print(f"North-South: "
+      f"{coords_meters[:,1].min()/1000:.0f} to "
+      f"{coords_meters[:,1].max()/1000:.0f} km")
+
+# ============================================
+# STEP 4: Optimal K Dhundo
+#
+# CONCEPT: Silhouette Score
+# 
+# Score = -1 to +1
+# +1 = Perfect clustering
+#  0 = Overlapping clusters  
+# -1 = Wrong clustering
+#
+# Hum 2 se 15 clusters try karenge
+# aur best score wala k choose karenge
+# ============================================
+
+print("\nOptimal clusters dhund rahe hain...")
+print("(Silhouette Score calculate ho raha hai)")
+
+k_range = range(2, 12)
+silhouette_scores = []
+
+# Sample use karo — 1076 pe slow hoga
+sample_idx = np.random.choice(
+    len(coords_meters), 300, replace=False)
+sample_coords = coords_meters[sample_idx]
+
+for k in k_range:
+    kmeans_test = KMeans(
+        n_clusters=k, 
+        random_state=42,
+        n_init=10
+    )
+    labels_test = kmeans_test.fit_predict(
+        sample_coords)
+    score = silhouette_score(
+        sample_coords, labels_test)
+    silhouette_scores.append(score)
+    print(f"  k={k:2d} clusters: "
+          f"Score = {score:.4f}")
+
+best_k = k_range.start + \
+         silhouette_scores.index(
+             max(silhouette_scores))
+print(f"\nBest k = {best_k} "
+      f"(Score: {max(silhouette_scores):.4f})")
+
+# ============================================
+# STEP 5: Final Clustering
+# ============================================
+
+kmeans_final = KMeans(
+    n_clusters=best_k,
+    random_state=42,
+    n_init=10
+)
+labels = kmeans_final.fit_predict(
+    coords_meters)
+centers = kmeans_final.cluster_centers_
+
+# ============================================
+# STEP 6: Drone Operations Calculate Karo
+#
+# CONCEPT: Har cluster ke liye
+# kitne drone sorties chahiye?
+#
+# DJI T40 (modern agri drone):
+# Coverage: ~40 hectares/hour
+# Battery: ~15 min per charge
+# Per sortie: ~10 hectares
+# ============================================
+
+DRONE_COVERAGE_PER_SORTIE = 10  # hectares
+DRONE_SPEED = 7  # m/s
+SPRAY_WIDTH = 5  # meters
+
+print("\n" + "="*50)
+print("DRONE OPERATION ANALYSIS:")
+print("="*50)
+
+cluster_info = []
+for i in range(best_k):
+    cluster_mask = labels == i
+    cluster_estates = \
+        all_estates[cluster_mask]
+    cluster_sizes = \
+        estate_sizes[cluster_mask]
+    
+    n_estates_cluster = \
+        cluster_mask.sum()
+    total_ha = cluster_sizes.sum()
+    sorties_needed = math.ceil(
+        total_ha / DRONE_COVERAGE_PER_SORTIE)
+    
+    # Supply point (cluster center)
+    # Meters → GPS wapas convert
+    center_m = centers[i]
+    center_lon = 92.0 + center_m[0] / (
+        6371000 * math.cos(
+            math.radians(24.0)) * 
+        math.pi/180)
+    center_lat = 24.0 + center_m[1] / (
+        6371000 * math.pi/180)
+    
+    cluster_info.append({
+        'id': i+1,
+        'estates': n_estates_cluster,
+        'hectares': total_ha,
+        'sorties': sorties_needed,
+        'center_gps': (center_lon, center_lat)
+    })
+    
+    print(f"\nZone {i+1}:")
+    print(f"  Estates:  {n_estates_cluster}")
+    print(f"  Area:     {total_ha:,.0f} ha")
+    print(f"  Sorties:  {sorties_needed} drone flights")
+    print(f"  Supply Point: "
+          f"({center_lon:.4f}°E, "
+          f"{center_lat:.4f}°N)")
+
+# ============================================
+# STEP 7: Visualization
+# ============================================
+
+fig, axes = plt.subplots(1, 2, 
+                          figsize=(16, 7))
+
+# Plot 1: Clustered estates
+colors = plt.cm.Set1(
+    np.linspace(0, 1, best_k))
+
+ax1 = axes[0]
+for i in range(best_k):
+    mask = labels == i
+    ax1.scatter(
+        all_estates[mask, 0],
+        all_estates[mask, 1],
+        c=[colors[i]], 
+        s=15, alpha=0.6,
+        label=f'Zone {i+1}'
+    )
+
+# Supply points
 for i, center in enumerate(centers):
-    plt.scatter(center[0], center[1],
-                color=colors[i], marker='*', s=300,
-                label=f'Supply Point {i+1}', zorder=6)
-plt.title('Tea Fields Clustering (Paper ka Step 1)')
-plt.xlabel('X coordinate (meters)')
-plt.ylabel('Y coordinate (meters)')
-plt.legend()
-plt.grid(True, alpha=0.3)
+    # Convert back to GPS for plot
+    c_lon = 92.0 + center[0] / (
+        6371000 * math.cos(
+            math.radians(24.0)) * 
+        math.pi/180)
+    c_lat = 24.0 + center[1] / (
+        6371000 * math.pi/180)
+    ax1.scatter(
+        c_lon, c_lat,
+        c=[colors[i]], marker='*',
+        s=400, zorder=6,
+        edgecolors='black', linewidth=1
+    )
+
+# Tocklai mark karo
+ax1.scatter(94.21, 26.75, 
+            c='black', marker='^',
+            s=200, zorder=7,
+            label='Tocklai (TRA)')
+ax1.annotate('Tocklai\nResearch\nStation',
+             xy=(94.21, 26.75),
+             xytext=(10, 10),
+             textcoords='offset points',
+             fontsize=8, fontweight='bold')
+
+ax1.set_title(
+    f'Assam Tea Estates — {best_k} Drone Zones\n'
+    f'1,076 estates | 341,049 hectares',
+    fontweight='bold')
+ax1.set_xlabel('Longitude (°E)')
+ax1.set_ylabel('Latitude (°N)')
+ax1.legend(fontsize=8, 
+           loc='lower left')
+ax1.grid(True, alpha=0.3)
+
+# Plot 2: Zone-wise stats
+ax2 = axes[1]
+zone_names = [f'Zone {c["id"]}' 
+              for c in cluster_info]
+zone_estates = [c['estates'] 
+                for c in cluster_info]
+zone_sorties = [c['sorties'] 
+                for c in cluster_info]
+
+x = np.arange(len(zone_names))
+width = 0.35
+
+bars1 = ax2.bar(x - width/2, 
+                zone_estates,
+                width, 
+                label='Estates',
+                color=[colors[i] 
+                       for i in range(best_k)],
+                alpha=0.8)
+ax2_twin = ax2.twinx()
+bars2 = ax2_twin.bar(x + width/2,
+                     zone_sorties,
+                     width,
+                     label='Drone Sorties',
+                     color=[colors[i] 
+                            for i in range(best_k)],
+                     alpha=0.4,
+                     hatch='//')
+
+ax2.set_xlabel('Drone Zone')
+ax2.set_ylabel('Number of Estates', 
+               color='black')
+ax2_twin.set_ylabel('Drone Sorties Needed',
+                    color='gray')
+ax2.set_xticks(x)
+ax2.set_xticklabels(zone_names)
+ax2.set_title(
+    'Zone-wise: Estates vs Drone Sorties',
+    fontweight='bold')
+
+lines1, labels1 = ax2.get_legend_handles_labels()
+lines2, labels2 = ax2_twin.get_legend_handles_labels()
+ax2.legend(lines1 + lines2, 
+           labels1 + labels2,
+           loc='upper right')
+
+ax2.grid(True, alpha=0.3, axis='y')
+plt.tight_layout()
 plt.show()
 
-print("Har field kis group mein hai:")
-for i, label in enumerate(labels):
-    print(f"  Field {i+1} -> Group {label+1}")
+# ============================================
+# FINAL SUMMARY
+# ============================================
 
-print(f"\nSupply Points (UAV recharge karne ki jagah):")
-for i, center in enumerate(centers):
-    print(f"  Supply Point {i+1}: ({center[0]:.1f}, {center[1]:.1f})")
+print("\n" + "="*50)
+print("TOCKLAI ADVISORY NETWORK SUMMARY:")
+print("="*50)
+print(f"Total estates:    1,076")
+print(f"Total area:       341,049 hectares")
+print(f"Optimal zones:    {best_k}")
+total_sorties = sum(
+    c['sorties'] for c in cluster_info)
+print(f"Total sorties:    {total_sorties:,}")
+print(f"Drone speed:      {DRONE_SPEED} m/s")
+print(f"Spray width:      {SPRAY_WIDTH} m")
+print(f"\nNext step: Har zone mein")
+print(f"shortest route nikalna")
+print(f"(Project 2 — TSP!)")
