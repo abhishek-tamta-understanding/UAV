@@ -418,3 +418,719 @@ print(f"Spray width:      {SPRAY_WIDTH} m")
 print(f"\nNext step: Har zone mein")
 print(f"shortest route nikalna")
 print(f"(Project 2 — TSP!)")
+
+
+
+
+
+
+# ============================================
+# PROJECT 2: TSP Route Planning
+# Zone 4 — Jorhat/Tocklai Area
+#
+# CONCEPT: Drone ko 20 estates cover
+# karni hain — shortest route mein
+# Battery bachao, time bachao!
+# ============================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+import random
+import time
+
+# ============================================
+# STEP 1: Zone 4 Ka Data
+# 20 Real-ish Tea Estates Near Jorhat
+#
+# CONCEPT: Yeh Project 1 ka continuation
+# Zone 4 = Jorhat/Dibrugarh area
+# Supply point = Tocklai Research Station
+# ============================================
+
+# Tocklai = UAV base/supply point
+TOCKLAI = {
+    'name': 'Tocklai (Supply Point)',
+    'lon': 94.2058,
+    'lat': 26.7172
+}
+
+# Zone 4 ke 20 tea estates
+# Real Jorhat area coordinates
+jorhat_estates = [
+    {'name': 'Halmari Tea',
+     'lon': 94.1823, 'lat': 26.8234,
+     'area_ha': 485,
+     'pest': 'Helopeltis'},
+
+    {'name': 'Thengal Manor',
+     'lon': 94.3156, 'lat': 26.6891,
+     'area_ha': 312,
+     'pest': 'Thrips'},
+
+    {'name': 'Doomur Dullung',
+     'lon': 94.0934, 'lat': 26.7456,
+     'area_ha': 278,
+     'pest': 'Mites'},
+
+    {'name': 'Sessa Tea',
+     'lon': 94.4123, 'lat': 26.8012,
+     'area_ha': 423,
+     'pest': 'Helopeltis'},
+
+    {'name': 'Cinnamara',
+     'lon': 94.1567, 'lat': 26.6234,
+     'area_ha': 356,
+     'pest': 'Looper'},
+
+    {'name': 'Lahdoigarh',
+     'lon': 94.5234, 'lat': 26.7890,
+     'area_ha': 289,
+     'pest': 'Thrips'},
+
+    {'name': 'Dirok Tea',
+     'lon': 94.6012, 'lat': 26.8456,
+     'area_ha': 512,
+     'pest': 'Mites'},
+
+    {'name': 'Rajabari Estate',
+     'lon': 94.0234, 'lat': 26.8901,
+     'area_ha': 198,
+     'pest': 'Helopeltis'},
+
+    {'name': 'Borhat Tea',
+     'lon': 94.3890, 'lat': 26.5678,
+     'area_ha': 334,
+     'pest': 'Thrips'},
+
+    {'name': 'Mariani Estate',
+     'lon': 94.3234, 'lat': 26.9123,
+     'area_ha': 267,
+     'pest': 'Looper'},
+
+    {'name': 'Titabor Tea',
+     'lon': 94.1890, 'lat': 26.5234,
+     'area_ha': 445,
+     'pest': 'Mites'},
+
+    {'name': 'Sarupathar',
+     'lon': 93.9456, 'lat': 26.6789,
+     'area_ha': 223,
+     'pest': 'Helopeltis'},
+
+    {'name': 'Numaligarh Tea',
+     'lon': 93.8923, 'lat': 26.7234,
+     'area_ha': 378,
+     'pest': 'Thrips'},
+
+    {'name': 'Bokakhat Estate',
+     'lon': 93.6012, 'lat': 26.6456,
+     'area_ha': 312,
+     'pest': 'Mites'},
+
+    {'name': 'Dergaon Tea',
+     'lon': 93.9678, 'lat': 26.6912,
+     'area_ha': 189,
+     'pest': 'Looper'},
+
+    {'name': 'Teok Estate',
+     'lon': 94.6789, 'lat': 26.7012,
+     'area_ha': 256,
+     'pest': 'Helopeltis'},
+
+    {'name': 'Jorhat Tea Club',
+     'lon': 94.2234, 'lat': 26.7456,
+     'area_ha': 167,
+     'pest': 'Thrips'},
+
+    {'name': 'Aideobarie',
+     'lon': 94.4567, 'lat': 26.6234,
+     'area_ha': 298,
+     'pest': 'Mites'},
+
+    {'name': 'Lungsoree Tea',
+     'lon': 94.5890, 'lat': 26.5678,
+     'area_ha': 412,
+     'pest': 'Helopeltis'},
+
+    {'name': 'Powai Tea',
+     'lon': 94.0567, 'lat': 26.5123,
+     'area_ha': 345,
+     'pest': 'Thrips'},
+]
+
+# ============================================
+# STEP 2: GPS → Meters Convert
+#
+# CONCEPT: Distance calculate karne ke
+# liye meters chahiye, degrees nahi.
+# Same formula as Project 1!
+# ============================================
+
+def gps_to_meters(lon, lat,
+                  lon0=94.0, lat0=26.5):
+    R = 6371000
+    x = R * math.radians(
+        lon - lon0) * math.cos(
+        math.radians(lat0))
+    y = R * math.radians(lat - lat0)
+    return x, y
+
+# Supply point (Tocklai) convert karo
+supply_x, supply_y = gps_to_meters(
+    TOCKLAI['lon'], TOCKLAI['lat'])
+
+# Sabhi estates convert karo
+for estate in jorhat_estates:
+    estate['x'], estate['y'] = \
+        gps_to_meters(
+            estate['lon'], estate['lat'])
+
+# ============================================
+# STEP 3: Distance Matrix Banao
+#
+# CONCEPT: Distance Matrix =
+# Har estate se har doosre estate
+# ki distance ek table mein
+#
+# Example (5 estates):
+#         A    B    C    D    E
+#    A  [  0, 5.2, 3.1, 8.4, 6.7]
+#    B  [5.2,   0, 4.3, 7.2, 5.1]
+#    C  [3.1, 4.3,   0, 5.8, 4.2]
+#
+# Drone ko yeh table use karke
+# shortest path dhundhna hai!
+# ============================================
+
+# Supply point ko index 0 pe rakho
+all_points = [{
+    'name': TOCKLAI['name'],
+    'x': supply_x,
+    'y': supply_y,
+    'area_ha': 0,
+    'pest': 'None'
+}] + jorhat_estates
+
+n = len(all_points)  # 21 points total
+
+def euclidean_distance(p1, p2):
+    """
+    Concept: Seedhi line distance
+    Pythagoras theorem!
+    d = √((x2-x1)² + (y2-y1)²)
+    """
+    return math.sqrt(
+        (p1['x'] - p2['x'])**2 +
+        (p1['y'] - p2['y'])**2
+    )
+
+# Distance matrix calculate karo
+dist_matrix = np.zeros((n, n))
+for i in range(n):
+    for j in range(n):
+        dist_matrix[i][j] = \
+            euclidean_distance(
+                all_points[i],
+                all_points[j]
+            )
+
+print("Distance Matrix banaya!")
+print(f"Size: {n}x{n} "
+      f"({n*n} distances calculated)")
+print(f"\nKuch sample distances:")
+print(f"  Tocklai → Halmari: "
+      f"{dist_matrix[0][1]/1000:.2f} km")
+print(f"  Tocklai → Cinnamara: "
+      f"{dist_matrix[0][5]/1000:.2f} km")
+print(f"  Halmari → Thengal: "
+      f"{dist_matrix[1][2]/1000:.2f} km")
+
+# ============================================
+# STEP 4: Route Distance Calculate Karo
+#
+# CONCEPT: Ek route = estates ka ek order
+# [0,1,2,3,...,20] = Tocklai se shuru,
+# har estate visit karo, wapas Tocklai
+# ============================================
+
+def route_distance(route, dist_matrix):
+    """
+    Ek route ki total distance nikalo.
+
+    route = [0, 5, 3, 1, 8, ...]
+            index numbers ka order
+
+    Total = Estate1→2 + 2→3 + ... + last→start
+    """
+    total = 0
+    n = len(route)
+    for i in range(n):
+        # Current estate se next estate
+        from_idx = route[i]
+        to_idx = route[(i+1) % n]
+        total += dist_matrix[from_idx][to_idx]
+    return total
+
+# ============================================
+# STEP 5: 3 Methods Compare Karenge
+#
+# Method 1: Random Route (Baseline)
+# Method 2: Greedy (Nearest Neighbor)
+# Method 3: Genetic Algorithm (ACHAGA)
+#
+# CONCEPT: Dekhenge kitna improvement
+# hota hai har method se!
+# ============================================
+
+estate_indices = list(range(1, n))
+# 0 = Tocklai (fixed start/end)
+
+# -------------------------------------------
+# METHOD 1: RANDOM ROUTE
+# Concept: Koi planning nahi —
+# jaise manual/random drone path
+# -------------------------------------------
+random_route = [0] + random.sample(
+    estate_indices, len(estate_indices))
+random_dist = route_distance(
+    random_route, dist_matrix)
+
+print(f"\n{'='*50}")
+print("METHOD COMPARISON:")
+print(f"{'='*50}")
+print(f"\nMethod 1 - Random Route:")
+print(f"  Distance: {random_dist/1000:.2f} km")
+print(f"  (Jaise koi planning nahi)")
+
+# -------------------------------------------
+# METHOD 2: GREEDY — NEAREST NEIGHBOR
+#
+# CONCEPT: Hamesha nearest unvisited
+# estate ko visit karo.
+# "Common sense" algorithm!
+#
+# Limitation: Locally good,
+# globally not optimal!
+# -------------------------------------------
+
+def greedy_route(start, dist_matrix, n):
+    """
+    Nearest neighbor heuristic.
+    Har step pe nearest unvisited jaao.
+    """
+    visited = [False] * n
+    route = [start]
+    visited[start] = True
+
+    for _ in range(n - 1):
+        current = route[-1]
+        nearest = None
+        nearest_dist = float('inf')
+
+        for j in range(n):
+            if not visited[j]:
+                d = dist_matrix[current][j]
+                if d < nearest_dist:
+                    nearest_dist = d
+                    nearest = j
+
+        route.append(nearest)
+        visited[nearest] = True
+
+    return route
+
+greedy = greedy_route(0, dist_matrix, n)
+greedy_dist = route_distance(
+    greedy, dist_matrix)
+
+print(f"\nMethod 2 - Greedy (Nearest):")
+print(f"  Distance: {greedy_dist/1000:.2f} km")
+print(f"  Improvement over random: "
+      f"{((random_dist-greedy_dist)/random_dist*100):.1f}%")
+
+# -------------------------------------------
+# METHOD 3: GENETIC ALGORITHM
+#
+# CONCEPT:
+# 1. Population = 50 random routes
+# 2. Fitness = 1/distance (shorter = better)
+# 3. Selection = Best routes choose karo
+# 4. Crossover = Do routes combine karo
+# 5. Mutation = Random swap karo
+# 6. Repeat 200 generations
+#
+# Yahi paper ka GA component hai!
+# -------------------------------------------
+
+def genetic_algorithm(
+    dist_matrix, n_estates,
+    pop_size=50,      # 50 routes ek saath
+    generations=200,  # 200 rounds
+    mutation_rate=0.02):
+    """
+    GA for TSP — Paper ka Section 2.3.1
+
+    Parameters:
+    pop_size   = kitni routes ek saath
+    generations = kitni baar evolve karo
+    mutation_rate = kitni baar random change
+    """
+
+    indices = list(range(1, n_estates + 1))
+
+    # INITIALIZATION
+    # Concept: Random se shuru karo
+    # Diversity chahiye starting mein!
+    population = []
+    for _ in range(pop_size):
+        route = [0] + random.sample(
+            indices, len(indices))
+        population.append(route)
+
+    best_route = None
+    best_distance = float('inf')
+    history = []  # Convergence track karne ke liye
+
+    for gen in range(generations):
+
+        # FITNESS CALCULATE KARO
+        # Concept: Short route = High fitness
+        # fitness = 1/distance
+        # (Zyada fitness = better individual)
+        fitness = []
+        for route in population:
+            d = route_distance(
+                route, dist_matrix)
+            fitness.append(1.0 / d)
+
+            # Best route track karo
+            if d < best_distance:
+                best_distance = d
+                best_route = route.copy()
+
+        history.append(best_distance)
+
+        # SELECTION
+        # Concept: Roulette wheel selection
+        # Better routes ko zyada chance!
+        total_fitness = sum(fitness)
+        probs = [f/total_fitness
+                 for f in fitness]
+
+        # NEW POPULATION BANAO
+        new_population = []
+
+        # Elitism: Best 2 routes
+        # directly next gen mein
+        # Concept: Achhe genes preserve karo!
+        sorted_pop = sorted(
+            zip(fitness, population),
+            reverse=True
+        )
+        new_population.extend(
+            [r for _, r in sorted_pop[:2]])
+
+        while len(new_population) < pop_size:
+
+            # SELECTION: 2 parents chuno
+            parent1 = population[
+                np.random.choice(
+                    len(population), p=probs)]
+            parent2 = population[
+                np.random.choice(
+                    len(population), p=probs)]
+
+            # CROSSOVER (OX - Order Crossover)
+            # Concept: Parent1 ka ek hissa lo
+            # Baaki Parent2 se fill karo
+            # Order preserve karo!
+            #
+            # Parent1: [0,1,2,3,4,5,6,7]
+            # Parent2: [0,5,3,1,7,2,4,6]
+            # Cut: [2:5]
+            # Child:  [0,?,3,4,5,?,?,?]
+            #         (P2 se fill: 1,7,2,6)
+            # Child:  [0,1,3,4,5,7,2,6]
+
+            size = len(parent1)
+            # Supply point (0) fix hai
+            p1 = parent1[1:]
+            p2 = parent2[1:]
+
+            start = random.randint(
+                0, len(p1)-2)
+            end = random.randint(
+                start+1, len(p1)-1)
+
+            # P1 ka segment
+            child = [None] * len(p1)
+            child[start:end] = p1[start:end]
+
+            # P2 se remaining fill karo
+            p2_remaining = [
+                x for x in p2
+                if x not in child]
+            j = 0
+            for i in range(len(child)):
+                if child[i] is None:
+                    child[i] = p2_remaining[j]
+                    j += 1
+
+            child = [0] + child
+
+            # MUTATION
+            # Concept: Random 2 estates swap karo
+            # Diversity maintain karo!
+            # Prevent premature convergence!
+            if random.random() < mutation_rate:
+                i = random.randint(1, size-2)
+                j = random.randint(1, size-2)
+                child[i], child[j] = \
+                    child[j], child[i]
+
+            new_population.append(child)
+
+        population = new_population
+
+    return best_route, best_distance, history
+
+# GA Run karo!
+print(f"\nMethod 3 - Genetic Algorithm:")
+print(f"  Running... (200 generations)")
+start_time = time.time()
+
+ga_route, ga_dist, ga_history = \
+    genetic_algorithm(
+        dist_matrix,
+        len(estate_indices)
+    )
+
+elapsed = time.time() - start_time
+print(f"  Time: {elapsed:.2f} seconds")
+print(f"  Distance: {ga_dist/1000:.2f} km")
+print(f"  Improvement over random: "
+      f"{((random_dist-ga_dist)/random_dist*100):.1f}%")
+print(f"  Improvement over greedy: "
+      f"{((greedy_dist-ga_dist)/greedy_dist*100):.1f}%")
+
+# ============================================
+# STEP 6: Pest Priority Route
+#
+# CONCEPT: Real entomology connection!
+# Sirf distance nahi — pest severity
+# bhi matter karta hai!
+#
+# Helopeltis = HIGH priority
+# (Most damaging tea pest!)
+# Thrips = MEDIUM
+# Mites = MEDIUM
+# Looper = LOW
+# ============================================
+
+pest_priority = {
+    'Helopeltis': 3,  # Highest!
+    'Thrips': 2,
+    'Mites': 2,
+    'Looper': 1
+}
+
+print(f"\n{'='*50}")
+print("PEST PRIORITY ANALYSIS:")
+print(f"{'='*50}")
+
+for estate in jorhat_estates:
+    priority = pest_priority.get(
+        estate['pest'], 1)
+    stars = '🔴' * priority
+    print(f"  {estate['name']:20}: "
+          f"{estate['pest']:12} "
+          f"{stars}")
+
+# ============================================
+# STEP 7: Visualization
+# ============================================
+
+fig, axes = plt.subplots(2, 2,
+                          figsize=(16, 14))
+
+# Color by pest type
+pest_colors = {
+    'Helopeltis': '#E74C3C',  # Red
+    'Thrips':     '#F39C12',  # Orange
+    'Mites':      '#8E44AD',  # Purple
+    'Looper':     '#27AE60',  # Green
+    'None':       '#2C3E50'   # Dark (supply)
+}
+
+def plot_route(ax, route,
+               all_points, title,
+               color='blue',
+               show_order=True):
+    """Route ko plot karo"""
+
+    # Estates plot karo
+    for i, point in enumerate(all_points):
+        pest = point.get('pest', 'None')
+        c = pest_colors.get(pest, 'gray')
+
+        if i == 0:  # Supply point
+            ax.scatter(
+                point['x']/1000,
+                point['y']/1000,
+                c='gold', marker='*',
+                s=500, zorder=6,
+                edgecolors='black')
+            ax.annotate(
+                'Tocklai\n(Supply)',
+                xy=(point['x']/1000,
+                    point['y']/1000),
+                xytext=(5, 5),
+                textcoords='offset points',
+                fontsize=7,
+                fontweight='bold')
+        else:
+            ax.scatter(
+                point['x']/1000,
+                point['y']/1000,
+                c=c, s=100, zorder=5,
+                edgecolors='black',
+                linewidth=0.5)
+            if show_order:
+                order_num = route.index(i) \
+                    if i in route else '?'
+                ax.annotate(
+                    f"{order_num}",
+                    xy=(point['x']/1000,
+                        point['y']/1000),
+                    xytext=(4, 4),
+                    textcoords='offset points',
+                    fontsize=6)
+
+    # Route lines draw karo
+    for i in range(len(route)):
+        p1 = all_points[route[i]]
+        p2 = all_points[route[(i+1) %
+                               len(route)]]
+        ax.annotate(
+            '',
+            xy=(p2['x']/1000,
+                p2['y']/1000),
+            xytext=(p1['x']/1000,
+                    p1['y']/1000),
+            arrowprops=dict(
+                arrowstyle='->',
+                color=color,
+                lw=1.0,
+                alpha=0.6))
+
+    dist = route_distance(route, dist_matrix)
+    ax.set_title(
+        f'{title}\n'
+        f'Total: {dist/1000:.1f} km',
+        fontweight='bold', fontsize=10)
+    ax.set_xlabel('East (km)')
+    ax.set_ylabel('North (km)')
+    ax.grid(True, alpha=0.3)
+
+# Plot 1: Random Route
+plot_route(axes[0,0], random_route,
+           all_points,
+           'Method 1: Random Route\n'
+           '(No Planning)',
+           color='red')
+
+# Plot 2: Greedy Route
+plot_route(axes[0,1], greedy,
+           all_points,
+           'Method 2: Greedy\n'
+           '(Nearest Neighbor)',
+           color='orange')
+
+# Plot 3: GA Route
+plot_route(axes[1,0], ga_route,
+           all_points,
+           'Method 3: Genetic Algorithm\n'
+           '(Paper ka Method)',
+           color='green')
+
+# Plot 4: GA Convergence Curve
+axes[1,1].plot(ga_history,
+               color='#2ECC71',
+               linewidth=2,
+               label='GA Best Route')
+axes[1,1].axhline(
+    y=greedy_dist,
+    color='orange',
+    linestyle='--',
+    linewidth=1.5,
+    label=f'Greedy: '
+          f'{greedy_dist/1000:.1f}km')
+axes[1,1].axhline(
+    y=random_dist,
+    color='red',
+    linestyle='--',
+    linewidth=1.5,
+    label=f'Random: '
+          f'{random_dist/1000:.1f}km')
+axes[1,1].set_title(
+    'GA Convergence Curve\n'
+    '(Iterations vs Distance)',
+    fontweight='bold', fontsize=10)
+axes[1,1].set_xlabel('Generation')
+axes[1,1].set_ylabel('Route Distance (m)')
+axes[1,1].legend(fontsize=9)
+axes[1,1].grid(True, alpha=0.3)
+
+# Pest legend
+legend_elements = [
+    plt.scatter([], [], c=c, s=80,
+                label=pest,
+                edgecolors='black',
+                linewidth=0.5)
+    for pest, c in pest_colors.items()
+    if pest != 'None'
+]
+fig.legend(
+    handles=legend_elements,
+    loc='lower center',
+    ncol=4,
+    title='Pest Type',
+    fontsize=9,
+    bbox_to_anchor=(0.5, 0.01))
+
+plt.suptitle(
+    'TSP Route Planning — Zone 4 '
+    '(Jorhat/Tocklai Area)\n'
+    '20 Tea Estates | '
+    'Tocklai as Supply Point',
+    fontsize=13,
+    fontweight='bold',
+    y=1.01)
+
+plt.tight_layout()
+plt.show()
+
+# ============================================
+# FINAL SUMMARY
+# ============================================
+
+print(f"\n{'='*50}")
+print("PROJECT 2 FINAL SUMMARY:")
+print(f"{'='*50}")
+print(f"Zone 4 — Jorhat/Tocklai Area")
+print(f"Estates covered: 20")
+print(f"\nRoute Comparison:")
+print(f"  Random:  {random_dist/1000:.2f} km")
+print(f"  Greedy:  {greedy_dist/1000:.2f} km")
+print(f"  GA:      {ga_dist/1000:.2f} km")
+print(f"\nGA improvement: "
+      f"{((random_dist-ga_dist)/random_dist*100):.1f}% "
+      f"over random!")
+print(f"\nBest route order:")
+for i, idx in enumerate(ga_route):
+    print(f"  Stop {i:2d}: "
+          f"{all_points[idx]['name']}")
+print(f"\nNext: Simulated Annealing add")
+print(f"karenge → ACHAGA complete!")
+print(f"Phir: Pest Prediction ML model!")
