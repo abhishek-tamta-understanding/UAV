@@ -1134,3 +1134,659 @@ for i, idx in enumerate(ga_route):
 print(f"\nNext: Simulated Annealing add")
 print(f"karenge → ACHAGA complete!")
 print(f"Phir: Pest Prediction ML model!")
+
+
+
+
+# ============================================
+# PROJECT 3: ACHAGA Complete
+# GA + Simulated Annealing
+# 
+# CONCEPT: GA ne 404km nikala
+# SA ab isko aur improve karega
+# Combined = ACHAGA
+# ============================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+import random
+import time
+
+# ============================================
+# PREVIOUS PROJECT KA DATA
+# (Same estates aur distance matrix)
+# ============================================
+
+TOCKLAI = {
+    'name': 'Tocklai (Supply Point)',
+    'lon': 94.2058, 'lat': 26.7172
+}
+
+jorhat_estates = [
+    {'name': 'Halmari Tea',
+     'lon': 94.1823, 'lat': 26.8234,
+     'area_ha': 485, 'pest': 'Helopeltis'},
+    {'name': 'Thengal Manor',
+     'lon': 94.3156, 'lat': 26.6891,
+     'area_ha': 312, 'pest': 'Thrips'},
+    {'name': 'Doomur Dullung',
+     'lon': 94.0934, 'lat': 26.7456,
+     'area_ha': 278, 'pest': 'Mites'},
+    {'name': 'Sessa Tea',
+     'lon': 94.4123, 'lat': 26.8012,
+     'area_ha': 423, 'pest': 'Helopeltis'},
+    {'name': 'Cinnamara',
+     'lon': 94.1567, 'lat': 26.6234,
+     'area_ha': 356, 'pest': 'Looper'},
+    {'name': 'Lahdoigarh',
+     'lon': 94.5234, 'lat': 26.7890,
+     'area_ha': 289, 'pest': 'Thrips'},
+    {'name': 'Dirok Tea',
+     'lon': 94.6012, 'lat': 26.8456,
+     'area_ha': 512, 'pest': 'Mites'},
+    {'name': 'Rajabari Estate',
+     'lon': 94.0234, 'lat': 26.8901,
+     'area_ha': 198, 'pest': 'Helopeltis'},
+    {'name': 'Borhat Tea',
+     'lon': 94.3890, 'lat': 26.5678,
+     'area_ha': 334, 'pest': 'Thrips'},
+    {'name': 'Mariani Estate',
+     'lon': 94.3234, 'lat': 26.9123,
+     'area_ha': 267, 'pest': 'Looper'},
+    {'name': 'Titabor Tea',
+     'lon': 94.1890, 'lat': 26.5234,
+     'area_ha': 445, 'pest': 'Mites'},
+    {'name': 'Sarupathar',
+     'lon': 93.9456, 'lat': 26.6789,
+     'area_ha': 223, 'pest': 'Helopeltis'},
+    {'name': 'Numaligarh Tea',
+     'lon': 93.8923, 'lat': 26.7234,
+     'area_ha': 378, 'pest': 'Thrips'},
+    {'name': 'Bokakhat Estate',
+     'lon': 93.6012, 'lat': 26.6456,
+     'area_ha': 312, 'pest': 'Mites'},
+    {'name': 'Dergaon Tea',
+     'lon': 93.9678, 'lat': 26.6912,
+     'area_ha': 189, 'pest': 'Looper'},
+    {'name': 'Teok Estate',
+     'lon': 94.6789, 'lat': 26.7012,
+     'area_ha': 256, 'pest': 'Helopeltis'},
+    {'name': 'Jorhat Tea Club',
+     'lon': 94.2234, 'lat': 26.7456,
+     'area_ha': 167, 'pest': 'Thrips'},
+    {'name': 'Aideobarie',
+     'lon': 94.4567, 'lat': 26.6234,
+     'area_ha': 298, 'pest': 'Mites'},
+    {'name': 'Lungsoree Tea',
+     'lon': 94.5890, 'lat': 26.5678,
+     'area_ha': 412, 'pest': 'Helopeltis'},
+    {'name': 'Powai Tea',
+     'lon': 94.0567, 'lat': 26.5123,
+     'area_ha': 345, 'pest': 'Thrips'},
+]
+
+def gps_to_meters(lon, lat,
+                  lon0=94.0, lat0=26.5):
+    R = 6371000
+    x = R * math.radians(
+        lon-lon0) * math.cos(
+        math.radians(lat0))
+    y = R * math.radians(lat-lat0)
+    return x, y
+
+supply_x, supply_y = gps_to_meters(
+    TOCKLAI['lon'], TOCKLAI['lat'])
+
+for estate in jorhat_estates:
+    estate['x'], estate['y'] = \
+        gps_to_meters(
+            estate['lon'], estate['lat'])
+
+all_points = [{
+    'name': TOCKLAI['name'],
+    'x': supply_x, 'y': supply_y,
+    'area_ha': 0, 'pest': 'None'
+}] + jorhat_estates
+
+n = len(all_points)
+
+def euclidean_distance(p1, p2):
+    return math.sqrt(
+        (p1['x']-p2['x'])**2 +
+        (p1['y']-p2['y'])**2)
+
+dist_matrix = np.zeros((n, n))
+for i in range(n):
+    for j in range(n):
+        dist_matrix[i][j] = \
+            euclidean_distance(
+                all_points[i],
+                all_points[j])
+
+def route_distance(route, dist_matrix):
+    total = 0
+    for i in range(len(route)):
+        total += dist_matrix[
+            route[i]][route[(i+1) %
+                            len(route)]]
+    return total
+
+# Previous results (reference ke liye)
+GREEDY_DIST = 362990  # meters
+GA_DIST = 404410      # meters
+
+# ============================================
+# SIMULATED ANNEALING
+#
+# CONCEPT DETAIL:
+#
+# Socho ek ball hai pahad pe:
+#
+#    /\      /\
+#   /  \    /  \    /\
+#  /    \  /    \  /  \
+# /      \/      \/    \___
+#         ↑             ↑
+#    Local min      Global min
+#
+# Normal GA: Ball local min mein
+#            fas jaati hai
+#
+# SA trick: Kabhi kabhi ball ko
+#           UPAR bhi jaane do!
+#           (Temperature high hone pe)
+#           Taaki global min mile!
+#
+# Probability formula:
+# P = e^(-delta/T)
+# delta = kitna bura hai new solution
+# T = temperature
+#
+# T high → P high → buri route bhi lo
+# T low  → P low  → sirf better lo
+# ============================================
+
+def simulated_annealing(
+        initial_route,
+        dist_matrix,
+        T0=1000.0,      # Initial temperature
+        T_end=0.001,    # Final temperature  
+        alpha=0.995,    # Cooling rate
+        iterations=100): # Per temperature
+    """
+    SA Algorithm — Paper Section 2.3.2
+    
+    initial_route: GA ka best route
+                   (warm start!)
+    T0:    Start temperature (hot)
+    T_end: Stop temperature (cold)
+    alpha: Kitni tezi se thanda hoga
+           0.99 = slow cooling = better
+           0.90 = fast cooling = quick
+    """
+
+    current_route = initial_route.copy()
+    current_dist = route_distance(
+        current_route, dist_matrix)
+
+    best_route = current_route.copy()
+    best_dist = current_dist
+
+    T = T0
+    history = []
+    temp_history = []
+    accepted_worse = 0  # SA ki khoobi track
+    total_worse = 0
+
+    print(f"  SA Starting temperature: {T0}")
+    print(f"  SA Ending temperature:   {T_end}")
+    print(f"  Cooling rate:            {alpha}")
+
+    iteration_count = 0
+
+    while T > T_end:
+        for _ in range(iterations):
+
+            # NEIGHBOR GENERATE KARO
+            # Concept: 2 random estates
+            # swap karo → new route banta hai
+            new_route = current_route.copy()
+            i = random.randint(1, n-2)
+            j = random.randint(1, n-2)
+            new_route[i], new_route[j] = \
+                new_route[j], new_route[i]
+
+            new_dist = route_distance(
+                new_route, dist_matrix)
+
+            # ACCEPT/REJECT DECISION
+            # Concept: Metropolis Criterion
+            delta = new_dist - current_dist
+
+            if delta < 0:
+                # Better route → hamesha accept!
+                current_route = new_route
+                current_dist = new_dist
+            else:
+                # Worse route →
+                # kabhi kabhi accept karo!
+                # Probability = e^(-delta/T)
+                # T high → high probability
+                # T low  → low probability
+                total_worse += 1
+                probability = math.exp(
+                    -delta / T)
+                if random.random() < probability:
+                    current_route = new_route
+                    current_dist = new_dist
+                    accepted_worse += 1
+                    # ↑ Yahi SA ki MAGIC hai!
+                    # Worse solution accept ki
+                    # Local optima se bahar!
+
+            # Global best track karo
+            if current_dist < best_dist:
+                best_dist = current_dist
+                best_route = current_route.copy()
+
+        # Temperature cool karo
+        # Paper ka adaptive cooling!
+        T *= alpha
+        iteration_count += 1
+        history.append(best_dist)
+        temp_history.append(T)
+
+    # SA statistics
+    if total_worse > 0:
+        acceptance_rate = \
+            accepted_worse/total_worse*100
+    else:
+        acceptance_rate = 0
+
+    print(f"  Total temperature steps: "
+          f"{iteration_count}")
+    print(f"  Worse solutions tried:   "
+          f"{total_worse}")
+    print(f"  Worse solutions accepted:"
+          f" {accepted_worse} "
+          f"({acceptance_rate:.1f}%)")
+
+    return best_route, best_dist, \
+           history, temp_history
+
+# ============================================
+# GENETIC ALGORITHM
+# (Same as Project 2 — reference ke liye)
+# ============================================
+
+def genetic_algorithm(
+        dist_matrix, n_estates,
+        pop_size=50,
+        generations=200,
+        mutation_rate=0.02):
+
+    indices = list(range(1, n_estates+1))
+    population = [
+        [0] + random.sample(
+            indices, len(indices))
+        for _ in range(pop_size)
+    ]
+
+    best_route = None
+    best_dist = float('inf')
+    ga_history = []
+
+    for gen in range(generations):
+        fitness = []
+        for route in population:
+            d = route_distance(
+                route, dist_matrix)
+            fitness.append(1.0/d)
+            if d < best_dist:
+                best_dist = d
+                best_route = route.copy()
+
+        ga_history.append(best_dist)
+        total_fit = sum(fitness)
+        probs = [f/total_fit for f in fitness]
+
+        sorted_pop = sorted(
+            zip(fitness, population),
+            reverse=True)
+        new_pop = [r for _, r
+                   in sorted_pop[:2]]
+
+        while len(new_pop) < pop_size:
+            p1 = population[
+                np.random.choice(
+                    len(population), p=probs)]
+            p2 = population[
+                np.random.choice(
+                    len(population), p=probs)]
+
+            size = len(p1)
+            seg1 = p1[1:]
+            seg2 = p2[1:]
+            s = random.randint(0, len(seg1)-2)
+            e = random.randint(s+1, len(seg1)-1)
+
+            child = [None]*len(seg1)
+            child[s:e] = seg1[s:e]
+            remaining = [x for x in seg2
+                        if x not in child]
+            j = 0
+            for i in range(len(child)):
+                if child[i] is None:
+                    child[i] = remaining[j]
+                    j += 1
+
+            child = [0] + child
+            if random.random() < mutation_rate:
+                i = random.randint(1, size-2)
+                j = random.randint(1, size-2)
+                child[i], child[j] = \
+                    child[j], child[i]
+
+            new_pop.append(child)
+        population = new_pop
+
+    return best_route, best_dist, ga_history
+
+# ============================================
+# GREEDY (Reference)
+# ============================================
+
+def greedy_route(start, dist_matrix, n):
+    visited = [False]*n
+    route = [start]
+    visited[start] = True
+    for _ in range(n-1):
+        current = route[-1]
+        nearest = min(
+            [j for j in range(n)
+             if not visited[j]],
+            key=lambda j:
+                dist_matrix[current][j])
+        route.append(nearest)
+        visited[nearest] = True
+    return route
+
+# ============================================
+# ACHAGA = GA → SA PIPELINE
+#
+# CONCEPT:
+# Step 1: GA se good solution nikalo
+#         (Global search)
+# Step 2: GA ka output SA ko do
+#         (Local refinement)
+# Step 3: SA aur improve karta hai
+#         (Escape local optima)
+#
+# Yahi paper ka main contribution hai!
+# ============================================
+
+print("="*50)
+print("ACHAGA RUNNING:")
+print("="*50)
+
+# PHASE 1: GA
+print("\nPhase 1 — Genetic Algorithm:")
+print("  200 generations evolving...")
+start = time.time()
+ga_route, ga_dist, ga_history = \
+    genetic_algorithm(
+        dist_matrix,
+        len(jorhat_estates))
+ga_time = time.time() - start
+print(f"  GA Result: {ga_dist/1000:.2f} km")
+print(f"  Time: {ga_time:.2f}s")
+
+# PHASE 2: SA (GA output se start!)
+print("\nPhase 2 — Simulated Annealing:")
+print("  GA route ko further optimize...")
+start = time.time()
+sa_route, sa_dist, sa_history, \
+    temp_history = simulated_annealing(
+        initial_route=ga_route,  # GA se!
+        dist_matrix=dist_matrix,
+        T0=1000.0,
+        T_end=0.001,
+        alpha=0.995,
+        iterations=100)
+sa_time = time.time() - start
+print(f"  SA Result: {sa_dist/1000:.2f} km")
+print(f"  Time: {sa_time:.2f}s")
+
+# Greedy for comparison
+greedy = greedy_route(0, dist_matrix, n)
+greedy_dist = route_distance(
+    greedy, dist_matrix)
+
+# ============================================
+# RESULTS
+# ============================================
+
+print(f"\n{'='*50}")
+print("FINAL COMPARISON:")
+print(f"{'='*50}")
+print(f"  Greedy:  {greedy_dist/1000:.2f} km")
+print(f"  GA only: {ga_dist/1000:.2f} km")
+print(f"  ACHAGA:  {sa_dist/1000:.2f} km ← BEST!")
+print(f"\n  ACHAGA vs Greedy: "
+      f"{((greedy_dist-sa_dist)/greedy_dist*100):.1f}% better")
+print(f"  ACHAGA vs GA: "
+      f"{((ga_dist-sa_dist)/ga_dist*100):.1f}% better")
+print(f"\n  Total ACHAGA time: "
+      f"{ga_time+sa_time:.2f}s")
+
+# ============================================
+# VISUALIZATION
+# ============================================
+
+pest_colors = {
+    'Helopeltis': '#E74C3C',
+    'Thrips':     '#F39C12',
+    'Mites':      '#8E44AD',
+    'Looper':     '#27AE60',
+    'None':       '#2C3E50'
+}
+
+fig = plt.figure(figsize=(18, 12))
+
+# Layout: 2 rows, 3 columns
+ax1 = fig.add_subplot(2, 3, 1)
+ax2 = fig.add_subplot(2, 3, 2)
+ax3 = fig.add_subplot(2, 3, 3)
+ax4 = fig.add_subplot(2, 1, 2)
+
+def plot_route_map(ax, route,
+                   all_points,
+                   title, color):
+    for i, point in enumerate(all_points):
+        c = pest_colors.get(
+            point.get('pest','None'),
+            'gray')
+        if i == 0:
+            ax.scatter(
+                point['x']/1000,
+                point['y']/1000,
+                c='gold', marker='*',
+                s=400, zorder=6,
+                edgecolors='black')
+        else:
+            ax.scatter(
+                point['x']/1000,
+                point['y']/1000,
+                c=c, s=80, zorder=5,
+                edgecolors='black',
+                linewidth=0.5)
+
+    for i in range(len(route)):
+        p1 = all_points[route[i]]
+        p2 = all_points[
+            route[(i+1) % len(route)]]
+        ax.annotate(
+            '',
+            xy=(p2['x']/1000,
+                p2['y']/1000),
+            xytext=(p1['x']/1000,
+                    p1['y']/1000),
+            arrowprops=dict(
+                arrowstyle='->',
+                color=color,
+                lw=1.0, alpha=0.7))
+
+    dist = route_distance(
+        route, dist_matrix)
+    ax.set_title(
+        f'{title}\n'
+        f'{dist/1000:.1f} km',
+        fontweight='bold', fontsize=9)
+    ax.set_xlabel('East (km)', fontsize=8)
+    ax.set_ylabel('North (km)', fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+# Map plots
+plot_route_map(
+    ax1, greedy, all_points,
+    'Greedy Route', 'orange')
+plot_route_map(
+    ax2, ga_route, all_points,
+    'GA Only', 'blue')
+plot_route_map(
+    ax3, sa_route, all_points,
+    'ACHAGA (GA+SA)', 'green')
+
+# Convergence comparison
+# GA history
+ax4.plot(ga_history,
+         color='blue',
+         linewidth=2,
+         label=f'GA: {ga_dist/1000:.1f}km',
+         alpha=0.8)
+
+# SA history (offset by GA generations)
+sa_x = [200 + i for i
+        in range(len(sa_history))]
+ax4.plot(sa_x, sa_history,
+         color='green',
+         linewidth=2,
+         label=f'SA (after GA): '
+               f'{sa_dist/1000:.1f}km',
+         alpha=0.8)
+
+# Reference lines
+ax4.axhline(
+    y=greedy_dist,
+    color='orange',
+    linestyle='--', linewidth=1.5,
+    label=f'Greedy: '
+          f'{greedy_dist/1000:.1f}km')
+
+# GA→SA transition mark karo
+ax4.axvline(
+    x=200, color='red',
+    linestyle=':', linewidth=2,
+    label='GA→SA Handoff')
+
+ax4.fill_betweenx(
+    [min(sa_history)*0.99,
+     max(ga_history)*1.01],
+    0, 200,
+    alpha=0.1, color='blue',
+    label='GA Phase')
+ax4.fill_betweenx(
+    [min(sa_history)*0.99,
+     max(ga_history)*1.01],
+    200, 200+len(sa_history),
+    alpha=0.1, color='green',
+    label='SA Phase')
+
+ax4.set_title(
+    'ACHAGA Convergence: '
+    'GA Phase → SA Phase\n'
+    '(Paper Figure 15 jaisa!)',
+    fontweight='bold', fontsize=11)
+ax4.set_xlabel(
+    'Iterations (GA gens + SA steps)',
+    fontsize=10)
+ax4.set_ylabel(
+    'Route Distance (m)', fontsize=10)
+ax4.legend(fontsize=9,
+           loc='upper right')
+ax4.grid(True, alpha=0.3)
+
+# Pest legend
+legend_el = [
+    plt.Line2D(
+        [0], [0],
+        marker='o',
+        color='w',
+        markerfacecolor=c,
+        markersize=10,
+        label=pest)
+    for pest, c in pest_colors.items()
+    if pest != 'None'
+]
+fig.legend(
+    handles=legend_el,
+    loc='lower center',
+    ncol=4,
+    title='Tea Pest Type',
+    fontsize=9,
+    bbox_to_anchor=(0.5, 0.01))
+
+plt.suptitle(
+    'ACHAGA Algorithm — Complete!\n'
+    'Tocklai Tea Research Institute '
+    '| Zone 4 Route Optimization',
+    fontsize=13,
+    fontweight='bold')
+plt.tight_layout(rect=[0, 0.05, 1, 0.96])
+plt.show()
+
+# ============================================
+# ACHAGA SUMMARY — INTERVIEW READY
+# ============================================
+
+print(f"\n{'='*50}")
+print("ACHAGA — INTERVIEW SUMMARY:")
+print(f"{'='*50}")
+print("""
+Algorithm:  ACHAGA
+Full form:  Adaptive Clustering
+            Hyperbolic Annealing
+            Genetic Algorithm
+
+3 Components:
+1. K-Means Clustering
+   → 1076 estates ko 4 zones mein baanta
+   → Har zone ka supply point nikala
+   → Project 1 mein kiya!
+
+2. Genetic Algorithm  
+   → TSP problem solve kiya
+   → Population evolve ki
+   → 200 generations mein
+     good solution nikala
+
+3. Simulated Annealing
+   → GA ka output liya
+   → Temperature se control kiya
+   → Local optima se nikala
+   → Final best route!
+
+Real World Impact (Paper):
+   Manual:  5177 m
+   BSO:     4745 m  
+   ACHAGA:  4385 m ← Best!
+   
+Tocklai Impact (Hamara result):
+   Random:  785 km
+   Greedy:  363 km
+   ACHAGA:  ??? km ← tumhara output!
+""")
+print("Next: Pest Prediction ML Model!")
+print("Phir: IoT Integration!")
+
