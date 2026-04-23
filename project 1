@@ -1790,3 +1790,703 @@ Tocklai Impact (Hamara result):
 print("Next: Pest Prediction ML Model!")
 print("Phir: IoT Integration!")
 
+
+# ============================================
+# PROJECT 4: Pest Prediction ML Model
+# Tocklai Tea Research Institute
+#
+# CONCEPT: Weather + Field data se
+# predict karo ki kal konsa pest
+# attack karega aur kitna severe
+#
+# ML Type: Classification + Regression
+# Classification: Konsa pest?
+# Regression: Kitna severe (0-10)?
+# ============================================
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    RandomForestRegressor,
+    GradientBoostingClassifier)
+from sklearn.model_selection import (
+    train_test_split,
+    cross_val_score)
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    mean_squared_error)
+from sklearn.preprocessing import (
+    LabelEncoder, StandardScaler)
+import warnings
+warnings.filterwarnings('ignore')
+
+# ============================================
+# STEP 1: Dataset Banao
+#
+# CONCEPT: Real Tocklai data hota toh
+# best tha. Abhi synthetic data banate
+# hain — real patterns ke saath!
+#
+# Data based on:
+# - Tocklai research publications
+# - Tea pest biology
+# - Assam weather patterns
+# ============================================
+
+np.random.seed(42)
+n_samples = 2000  # 2000 observations
+
+print("="*50)
+print("PEST PREDICTION DATASET:")
+print("="*50)
+print("Generating realistic Assam")
+print("tea garden data...")
+
+# ----------------------------------------
+# FEATURES BANAO (Input variables)
+# ----------------------------------------
+
+# 1. Month (1-12)
+# Assam mein pest seasonality strong hai
+months = np.random.randint(1, 13, n_samples)
+
+# 2. Temperature (°C)
+# Assam: 15-35°C range
+# Season-dependent!
+temp_base = 25 + 8*np.sin(
+    (months - 3) * np.pi/6)
+temperature = temp_base + np.random.normal(
+    0, 2, n_samples)
+temperature = np.clip(temperature, 15, 38)
+
+# 3. Relative Humidity (%)
+# Assam monsoon: June-Sept high humidity
+humidity_base = 70 + 15*np.sin(
+    (months - 6) * np.pi/6)
+humidity = humidity_base + \
+    np.random.normal(0, 5, n_samples)
+humidity = np.clip(humidity, 40, 98)
+
+# 4. Rainfall last 7 days (mm)
+# Monsoon months mein zyada
+rain_base = np.where(
+    (months >= 6) & (months <= 9),
+    50, 10)
+rainfall_7d = np.random.exponential(
+    rain_base, n_samples)
+rainfall_7d = np.clip(rainfall_7d, 0, 200)
+
+# 5. Flush stage
+# 0=dormant, 1=banjhi, 2=young flush
+# 3=mature flush, 4=hardened
+flush_stage = np.random.choice(
+    [0, 1, 2, 3, 4],
+    n_samples,
+    p=[0.1, 0.15, 0.3, 0.3, 0.15])
+
+# 6. Previous week pest count
+# (Field survey data)
+prev_pest_count = np.random.poisson(
+    3, n_samples)
+
+# 7. Days since last spray
+days_since_spray = np.random.randint(
+    0, 21, n_samples)
+
+# 8. Estate elevation (meters)
+# Assam tea: 50-800m
+elevation = np.random.normal(
+    150, 80, n_samples)
+elevation = np.clip(elevation, 50, 800)
+
+# 9. Wind speed (km/h)
+wind_speed = np.random.exponential(
+    8, n_samples)
+wind_speed = np.clip(wind_speed, 0, 30)
+
+# ----------------------------------------
+# TARGET VARIABLES BANAO
+# Based on real pest biology!
+# ----------------------------------------
+
+pest_type = []      # Konsa pest?
+severity_score = [] # Kitna severe? (0-10)
+
+for i in range(n_samples):
+    T = temperature[i]
+    H = humidity[i]
+    R = rainfall_7d[i]
+    F = flush_stage[i]
+    M = months[i]
+    P = prev_pest_count[i]
+    D = days_since_spray[i]
+
+    # ====================================
+    # PEST BIOLOGY RULES
+    # (Tocklai research se!)
+    # ====================================
+
+    # HELOPELTIS CONDITIONS:
+    # - Young flush (stage 2-3)
+    # - High humidity (>75%)
+    # - Temperature 22-30°C
+    # - Post-rain (flush emergence)
+    helopeltis_score = 0
+    if F in [2, 3]:
+        helopeltis_score += 3
+    if H > 75:
+        helopeltis_score += 2
+    if 22 <= T <= 30:
+        helopeltis_score += 2
+    if R > 20:
+        helopeltis_score += 2
+    if M in [4, 5, 8, 9]:
+        helopeltis_score += 1  # Peak months
+
+    # THRIPS CONDITIONS:
+    # - Warm temp (20-28°C)
+    # - Moderate humidity (50-75%)
+    # - Young-mature flush
+    thrips_score = 0
+    if 20 <= T <= 28:
+        thrips_score += 3
+    if 50 <= H <= 75:
+        thrips_score += 2
+    if F in [2, 3, 4]:
+        thrips_score += 2
+    if R < 15:
+        thrips_score += 2  # Dry conditions
+    if M in [3, 4, 5, 10, 11]:
+        thrips_score += 1
+
+    # MITES CONDITIONS:
+    # - Hot dry weather
+    # - Low humidity (<60%)
+    # - Mature/hardened leaves
+    mites_score = 0
+    if T > 28:
+        mites_score += 3
+    if H < 60:
+        mites_score += 3
+    if F in [3, 4]:
+        mites_score += 2
+    if R < 10:
+        mites_score += 2  # Drought stress
+    if M in [3, 4, 11, 12]:
+        mites_score += 1
+
+    # LOOPER CONDITIONS:
+    # - Moderate temperature
+    # - Any flush stage
+    # - More random/less weather dependent
+    looper_score = 0
+    if 18 <= T <= 26:
+        looper_score += 2
+    if F in [1, 2]:
+        looper_score += 2
+    if M in [6, 7, 8]:
+        looper_score += 2
+    looper_score += np.random.randint(0, 3)
+
+    # WINNER pest decide karo
+    scores = {
+        'Helopeltis': helopeltis_score,
+        'Thrips':     thrips_score,
+        'Mites':      mites_score,
+        'Looper':     looper_score
+    }
+
+    # Noise add karo (nature unpredictable!)
+    for pest in scores:
+        scores[pest] += np.random.randint(
+            0, 3)
+
+    winner = max(scores, key=scores.get)
+    max_score = scores[winner]
+
+    # Previous attack bhi influence karta
+    if P > 5:
+        max_score += 2
+    if D > 14:
+        max_score += 1
+
+    # Severity normalize karo (0-10)
+    severity = min(10,
+                   max_score / 2 +
+                   np.random.normal(0, 0.5))
+    severity = max(0, severity)
+
+    pest_type.append(winner)
+    severity_score.append(round(severity, 1))
+
+# ============================================
+# STEP 2: DataFrame Banao
+# ============================================
+
+df = pd.DataFrame({
+    'month':            months,
+    'temperature':      temperature.round(1),
+    'humidity':         humidity.round(1),
+    'rainfall_7d':      rainfall_7d.round(1),
+    'flush_stage':      flush_stage,
+    'prev_pest_count':  prev_pest_count,
+    'days_since_spray': days_since_spray,
+    'elevation':        elevation.round(0),
+    'wind_speed':       wind_speed.round(1),
+    'pest_type':        pest_type,
+    'severity':         severity_score
+})
+
+print(f"\nDataset shape: {df.shape}")
+print(f"\nPest distribution:")
+print(df['pest_type'].value_counts())
+print(f"\nSeverity stats:")
+print(df['severity'].describe().round(2))
+
+print(f"\nSample data (first 3 rows):")
+print(df.head(3).to_string())
+
+# ============================================
+# STEP 3: Data Prepare Karo
+#
+# CONCEPT: ML models numbers samajhte
+# hain — text nahi!
+# 'Helopeltis' → 0
+# 'Thrips'     → 1
+# 'Mites'      → 2
+# 'Looper'     → 3
+# Yeh LabelEncoder karta hai!
+# ============================================
+
+# Features (X) aur Target (y)
+feature_cols = [
+    'month', 'temperature', 'humidity',
+    'rainfall_7d', 'flush_stage',
+    'prev_pest_count', 'days_since_spray',
+    'elevation', 'wind_speed'
+]
+
+X = df[feature_cols].values
+
+# Classification target
+le = LabelEncoder()
+y_pest = le.fit_transform(
+    df['pest_type'].values)
+# Regression target
+y_severity = df['severity'].values
+
+# Train/Test split
+# CONCEPT: 80% data se seekho
+#          20% pe test karo
+# Jaise exam mein new questions!
+X_train, X_test, \
+y_pest_train, y_pest_test, \
+y_sev_train, y_sev_test = \
+    train_test_split(
+        X, y_pest, y_severity,
+        test_size=0.2,
+        random_state=42)
+
+print(f"\n{'='*50}")
+print("DATA SPLIT:")
+print(f"{'='*50}")
+print(f"Training samples: {len(X_train)}")
+print(f"Testing samples:  {len(X_test)}")
+
+# ============================================
+# STEP 4: MODEL 1 — Pest Classification
+#
+# CONCEPT: Random Forest
+#
+# Ek tree = Ek set of rules
+# "If temp>28 AND humidity<60 → Mites"
+#
+# Random Forest = 100 trees!
+# Har tree vote karta hai
+# Majority vote = Final answer
+#
+# Kyun Random Forest?
+# - Works well with small data
+# - Handles mixed features
+# - Gives feature importance!
+# - Easy to explain to farmers!
+# ============================================
+
+print(f"\n{'='*50}")
+print("MODEL 1: PEST TYPE CLASSIFIER")
+print("(Random Forest)")
+print(f"{'='*50}")
+
+clf = RandomForestClassifier(
+    n_estimators=100,  # 100 trees
+    max_depth=10,      # Tree depth limit
+    random_state=42,
+    class_weight='balanced'  # Equal attention
+)                             # to all pests
+
+clf.fit(X_train, y_pest_train)
+y_pred_pest = clf.predict(X_test)
+
+# Cross validation
+# CONCEPT: 5 baar train/test karo
+# Average accuracy = reliable score
+cv_scores = cross_val_score(
+    clf, X, y_pest, cv=5)
+
+print(f"\nCross-Validation Accuracy:")
+print(f"  Scores: "
+      f"{[f'{s:.3f}' for s in cv_scores]}")
+print(f"  Mean:   {cv_scores.mean():.3f} "
+      f"(+/- {cv_scores.std():.3f})")
+
+print(f"\nClassification Report:")
+print(classification_report(
+    y_pest_test,
+    y_pred_pest,
+    target_names=le.classes_))
+
+# ============================================
+# STEP 5: MODEL 2 — Severity Prediction
+#
+# CONCEPT: Gradient Boosting Regressor
+#
+# Regression = Number predict karna
+# (0-10 severity score)
+#
+# Gradient Boosting:
+# Tree 1 → Rough prediction
+# Tree 2 → Previous errors fix karo
+# Tree 3 → Aur fix karo
+# ...
+# Final = All trees combined!
+# ============================================
+
+print(f"\n{'='*50}")
+print("MODEL 2: SEVERITY PREDICTOR")
+print("(Gradient Boosting Regressor)")
+print(f"{'='*50}")
+
+from sklearn.ensemble import \
+    GradientBoostingRegressor
+
+reg = GradientBoostingRegressor(
+    n_estimators=100,
+    max_depth=5,
+    learning_rate=0.1,
+    random_state=42)
+
+reg.fit(X_train, y_sev_train)
+y_pred_sev = reg.predict(X_test)
+
+mse = mean_squared_error(
+    y_sev_test, y_pred_sev)
+rmse = np.sqrt(mse)
+r2 = reg.score(X_test, y_sev_test)
+
+print(f"\nSeverity Prediction Results:")
+print(f"  RMSE: {rmse:.3f} "
+      f"(avg error in severity)")
+print(f"  R²:   {r2:.3f} "
+      f"(1.0 = perfect)")
+
+# ============================================
+# STEP 6: FEATURE IMPORTANCE
+#
+# CONCEPT: Konsa factor sabse zyada
+# pest predict karta hai?
+#
+# Yeh entomologist ke liye
+# MOST USEFUL output hai!
+# ============================================
+
+feature_importance = \
+    clf.feature_importances_
+feature_df = pd.DataFrame({
+    'Feature': feature_cols,
+    'Importance': feature_importance
+}).sort_values(
+    'Importance', ascending=False)
+
+print(f"\n{'='*50}")
+print("FEATURE IMPORTANCE:")
+print("(Konsa factor sabse important?)")
+print(f"{'='*50}")
+for _, row in feature_df.iterrows():
+    bar = '█' * int(
+        row['Importance'] * 100)
+    print(f"  {row['Feature']:20}: "
+          f"{bar} "
+          f"{row['Importance']:.3f}")
+
+# ============================================
+# STEP 7: REAL PREDICTION DEMO
+#
+# Aaj Tocklai ka weather:
+# Predict karo — konsa pest?
+# ============================================
+
+print(f"\n{'='*50}")
+print("TODAY'S TOCKLAI PREDICTION:")
+print(f"{'='*50}")
+
+# Aaj ka scenario (April — interview day!)
+today_conditions = {
+    'month':            4,    # April
+    'temperature':      28.5, # Hot spring
+    'humidity':         72.0, # Moderate
+    'rainfall_7d':      15.0, # Some rain
+    'flush_stage':      2,    # Young flush!
+    'prev_pest_count':  3,
+    'days_since_spray': 10,
+    'elevation':        150,
+    'wind_speed':       6.0
+}
+
+print("\nCurrent Conditions at Tocklai:")
+for k, v in today_conditions.items():
+    print(f"  {k:20}: {v}")
+
+X_today = np.array(
+    [[today_conditions[f]
+      for f in feature_cols]])
+
+# Predict!
+pest_pred = clf.predict(X_today)[0]
+pest_name = le.inverse_transform(
+    [pest_pred])[0]
+pest_proba = clf.predict_proba(
+    X_today)[0]
+severity_pred = reg.predict(X_today)[0]
+
+print(f"\n🔍 PREDICTION:")
+print(f"  Pest:     {pest_name}")
+print(f"  Severity: {severity_pred:.1f}/10")
+
+print(f"\n📊 Probability Breakdown:")
+for pest, prob in zip(
+        le.classes_, pest_proba):
+    bar = '█' * int(prob * 30)
+    alert = ' ← ALERT!' \
+        if pest == pest_name else ''
+    print(f"  {pest:12}: "
+          f"{bar} "
+          f"{prob:.1%}{alert}")
+
+print(f"\n💡 RECOMMENDATION:")
+if severity_pred >= 7:
+    print(f"  🔴 HIGH ALERT!")
+    print(f"  Immediate drone spray")
+    print(f"  recommended!")
+elif severity_pred >= 4:
+    print(f"  🟡 MODERATE RISK")
+    print(f"  Schedule drone spray")
+    print(f"  within 2-3 days")
+else:
+    print(f"  🟢 LOW RISK")
+    print(f"  Continue monitoring")
+
+# ============================================
+# VISUALIZATION
+# ============================================
+
+fig = plt.figure(figsize=(18, 12))
+gs = gridspec.GridSpec(
+    2, 3, figure=fig,
+    hspace=0.4, wspace=0.35)
+
+ax1 = fig.add_subplot(gs[0, 0])
+ax2 = fig.add_subplot(gs[0, 1])
+ax3 = fig.add_subplot(gs[0, 2])
+ax4 = fig.add_subplot(gs[1, 0])
+ax5 = fig.add_subplot(gs[1, 1])
+ax6 = fig.add_subplot(gs[1, 2])
+
+pest_colors_map = {
+    'Helopeltis': '#E74C3C',
+    'Thrips':     '#F39C12',
+    'Mites':      '#8E44AD',
+    'Looper':     '#27AE60'
+}
+
+# Plot 1: Pest Distribution
+pest_counts = df['pest_type'].value_counts()
+colors_pie = [pest_colors_map[p]
+              for p in pest_counts.index]
+ax1.pie(pest_counts.values,
+        labels=pest_counts.index,
+        colors=colors_pie,
+        autopct='%1.1f%%',
+        startangle=90)
+ax1.set_title('Pest Distribution\n'
+              'in Dataset',
+              fontweight='bold')
+
+# Plot 2: Feature Importance
+colors_fi = ['#E74C3C'
+             if i == 0 else '#3498DB'
+             for i in range(
+                 len(feature_df))]
+bars = ax2.barh(
+    feature_df['Feature'],
+    feature_df['Importance'],
+    color=colors_fi)
+ax2.set_title('Feature Importance\n'
+              '(What predicts pest?)',
+              fontweight='bold')
+ax2.set_xlabel('Importance Score')
+ax2.grid(True, alpha=0.3, axis='x')
+
+# Plot 3: Severity by Month
+monthly_sev = df.groupby('month')[
+    'severity'].mean()
+monthly_counts = df.groupby(
+    'month')['severity'].count()
+ax3.bar(monthly_sev.index,
+        monthly_sev.values,
+        color='#E74C3C', alpha=0.7)
+ax3.set_title('Avg Pest Severity\n'
+              'by Month (Assam)',
+              fontweight='bold')
+ax3.set_xlabel('Month')
+ax3.set_ylabel('Severity (0-10)')
+ax3.set_xticks(range(1, 13))
+ax3.set_xticklabels(
+    ['J','F','M','A','M','J',
+     'J','A','S','O','N','D'])
+ax3.grid(True, alpha=0.3, axis='y')
+ax3.axvspan(6, 9.5,
+            alpha=0.2, color='red',
+            label='Monsoon')
+ax3.legend(fontsize=8)
+
+# Plot 4: Confusion Matrix
+cm = confusion_matrix(
+    y_pest_test, y_pred_pest)
+im = ax4.imshow(
+    cm, interpolation='nearest',
+    cmap='Blues')
+ax4.set_title('Confusion Matrix\n'
+              '(Pest Classification)',
+              fontweight='bold')
+ax4.set_xticks(range(len(le.classes_)))
+ax4.set_yticks(range(len(le.classes_)))
+ax4.set_xticklabels(
+    le.classes_, rotation=45, ha='right',
+    fontsize=8)
+ax4.set_yticklabels(
+    le.classes_, fontsize=8)
+for i in range(len(le.classes_)):
+    for j in range(len(le.classes_)):
+        ax4.text(
+            j, i, str(cm[i, j]),
+            ha='center', va='center',
+            color='white'
+            if cm[i,j] > cm.max()/2
+            else 'black',
+            fontsize=9)
+ax4.set_ylabel('Actual')
+ax4.set_xlabel('Predicted')
+
+# Plot 5: Severity Prediction
+ax5.scatter(y_sev_test, y_pred_sev,
+            alpha=0.4, s=20,
+            c='#3498DB')
+ax5.plot([0, 10], [0, 10],
+         'r--', linewidth=2,
+         label='Perfect prediction')
+ax5.set_title(
+    f'Severity Prediction\n'
+    f'R² = {r2:.3f}',
+    fontweight='bold')
+ax5.set_xlabel('Actual Severity')
+ax5.set_ylabel('Predicted Severity')
+ax5.legend(fontsize=9)
+ax5.grid(True, alpha=0.3)
+
+# Plot 6: Today's Prediction
+proba_colors = [
+    pest_colors_map[p]
+    for p in le.classes_]
+bars6 = ax6.bar(
+    le.classes_,
+    pest_proba * 100,
+    color=proba_colors,
+    alpha=0.8,
+    edgecolor='black',
+    linewidth=0.8)
+ax6.axhline(
+    y=50, color='red',
+    linestyle='--',
+    linewidth=1.5,
+    label='50% threshold')
+ax6.set_title(
+    f"Today's Prediction\n"
+    f"April | Tocklai",
+    fontweight='bold')
+ax6.set_ylabel('Probability (%)')
+ax6.set_ylim(0, 100)
+ax6.legend(fontsize=9)
+ax6.grid(True, alpha=0.3, axis='y')
+for bar, prob in zip(bars6, pest_proba):
+    ax6.text(
+        bar.get_x() +
+        bar.get_width()/2,
+        bar.get_height() + 1,
+        f'{prob:.1%}',
+        ha='center', va='bottom',
+        fontsize=9, fontweight='bold')
+
+plt.suptitle(
+    'Pest Prediction ML Model\n'
+    'Tocklai Tea Research Institute '
+    '— Assam',
+    fontsize=13, fontweight='bold')
+plt.savefig('pest_prediction.png',
+            dpi=150,
+            bbox_inches='tight')
+plt.show()
+
+# ============================================
+# INTERVIEW READY SUMMARY
+# ============================================
+
+print(f"\n{'='*50}")
+print("ML CONCEPTS USED — INTERVIEW:")
+print(f"{'='*50}")
+print("""
+1. RANDOM FOREST CLASSIFIER
+   → 100 decision trees
+   → Majority vote
+   → Predicts: Which pest?
+   → Accuracy: Check output!
+
+2. GRADIENT BOOSTING REGRESSOR
+   → Sequential trees
+   → Each fixes previous errors
+   → Predicts: How severe?
+   → R²: Check output!
+
+3. FEATURE IMPORTANCE
+   → Tells which factor matters most
+   → Temperature? Humidity? Season?
+   → Actionable for farmers!
+
+4. CROSS VALIDATION
+   → 5-fold validation
+   → Reliable accuracy estimate
+   → Prevents overfitting!
+
+REAL APPLICATION:
+→ Daily weather data input karo
+→ Model predict karega pest + severity
+→ Drone route pe high-severity
+  estates ko priority do!
+→ ACHAGA + Pest Prediction =
+  Complete Precision Agriculture!
+""")
+print("Next: PROJECT 5 — IoT Integration!")
+print("Sensors + Live prediction!")
